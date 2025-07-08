@@ -1,0 +1,146 @@
+# Sentinel Provisioning Pipeline
+
+trigger: none
+
+pool: 
+  vmImage: 'ubuntu-latest'
+
+parameters:
+  - name: InstanceId
+    displayName: Enter Instance Id
+    type: string
+  - name: Action
+    displayName: Action
+    type: string
+    default: 'Build'
+    values:
+      - 'Build'
+      - 'Destroy'
+  - name: LogLevel
+    displayName: Log Level
+    type: string
+    default: 'ERROR'
+    values:
+      - 'ERROR'
+      - 'WARN'
+      - 'INFO'
+      - 'DEBUG'
+      - 'TRACE'
+  
+
+variables:
+- template: clients/${{ parameters.InstanceId }}.yaml 
+
+
+stages:
+- stage: Plan
+  displayName: 'Terraform Plan'
+  jobs:
+  - job: TerraformPlan
+    displayName: 'Terraform Plan'
+    steps:
+    - task: AzureKeyVault@2
+      inputs:
+        azureSubscription: 'KVConnection'                                    
+        KeyVaultName: 'Vault'                                               
+        SecretsFilter: 'backend-key,backend-client-id,backend-client-secret,backend-tenant-id,backend-subscription-id,${{ parameters.InstanceId }}-subscription-id,${{ parameters.InstanceId }}-client-id,${{ parameters.InstanceId }}-client-secret,${{ parameters.InstanceId }}-tenant-id'                          
+        RunAsPreJob: true                                                              
+
+    - script: |
+        terraform --version
+        echo "Running Terraform init for ${{ variables.client_name }} ..."
+        cd resources
+        terraform init \
+        -backend-config="resource_group_name=$(backend_resource_group_name)" \
+        -backend-config="storage_account_name=$(backend_storage_account_name)" \
+        -backend-config="container_name=$(backend_container_name)" \
+        -backend-config="key=$(backend-key)" \
+        -backend-config="access_key=$(backend-key)" \
+        -backend-config="client_id=$(backend-client-id)" \
+        -backend-config="client_secret=$(backend-client-secret)" \
+        -backend-config="tenant_id=$(backend-tenant-id)" \
+        -backend-config="subscription_id=$(backend-subscription-id)" 
+
+        echo "Running Terraform plan for ${{ variables.client_name }} ..."
+        if [ "${{ parameters.Action }}" = "Destroy" ]
+        then 
+          terraform plan -destroy -out=tfplan
+        else
+          terraform plan -out=tfplan
+        fi
+      env:
+        TF_VAR_subscription_id: $(${{ parameters.InstanceId }}-subscription-id)  
+        TF_VAR_client_id: $(${{ parameters.InstanceId }}-client-id)
+        TF_VAR_client_secret: $(${{ parameters.InstanceId }}-client-secret)
+        TF_VAR_tenant_id: $(${{ parameters.InstanceId }}-tenant-id)
+        TF_VAR_resource_group_name: ${{ variables.resource_group_name }}
+        TF_VAR_location: ${{ variables.location }}
+        TF_VAR_log_analytics_workspace_name: ${{ variables.log_analytics_workspace_name }}
+        TF_VAR_retention_in_days: ${{ variables.retention_in_days }}
+        TF_VAR_backend_resource_group_name: ${{ variables.backend_resource_group_name }}
+        TF_VAR_backend_storage_account_name: ${{ variables.backend_storage_account_name }}
+        TF_VAR_backend_container_name: ${{ variables.backend_container_name }}
+            
+        TF_LOG: ${{ parameters.LogLevel }} 
+
+      displayName: 'Terraform Init and Plan'
+
+    - publish: $(System.DefaultWorkingDirectory)/resources/tfplan
+      artifact: ${{ parameters.InstanceId }}-tfplan
+      displayName: 'Publish Plan'
+
+- stage: Deploy
+  dependsOn: Plan
+  
+  displayName: 'Terraform Apply'
+  jobs:
+  - job: TerraformApply
+    displayName: 'Terraform Apply'
+    steps:
+    - task: AzureKeyVault@2
+      inputs:
+        azureSubscription: 'KVConnection'                                    
+        KeyVaultName: 'Vault'                                               
+        SecretsFilter: 'backend-key,backend-client-id,backend-client-secret,backend-tenant-id,backend-subscription-id,${{ parameters.InstanceId }}-subscription-id,${{ parameters.InstanceId }}-client-id,${{ parameters.InstanceId }}-client-secret,${{ parameters.InstanceId }}-tenant-id'                          
+        RunAsPreJob: true                                                              
+    - download: current
+      artifact: ${{ parameters.InstanceId }}-tfplan
+    - script: |
+        terraform --version
+        echo "Running Terraform init for ${{ variables.client_name }} ..."
+        cp $(Pipeline.Workspace)/${{ parameters.InstanceId }}-tfplan/tfplan ./resources/tfplan
+        cd resources
+        terraform init \
+        -backend-config="resource_group_name=$(backend_resource_group_name)" \
+        -backend-config="storage_account_name=$(backend_storage_account_name)" \
+        -backend-config="container_name=$(backend_container_name)" \
+        -backend-config="key=$(backend-key)" \
+        -backend-config="access_key=$(backend-key)" \
+        -backend-config="client_id=$(backend-client-id)" \
+        -backend-config="client_secret=$(backend-client-secret)" \
+        -backend-config="tenant_id=$(backend-tenant-id)" \
+        -backend-config="subscription_id=$(backend-subscription-id)" 
+
+        echo "Running Terraform apply for ${{ variables.client_name }} ..."
+        terraform apply -auto-approve tfplan
+
+
+      env:
+        TF_VAR_subscription_id: $(${{ parameters.InstanceId }}-subscription-id)  
+        TF_VAR_client_id: $(${{ parameters.InstanceId }}-client-id)
+        TF_VAR_client_secret: $(${{ parameters.InstanceId }}-client-secret)
+        TF_VAR_tenant_id: $(${{ parameters.InstanceId }}-tenant-id)
+        TF_VAR_resource_group_name: ${{ variables.resource_group_name }}
+        TF_VAR_location: ${{ variables.location }}
+        TF_VAR_log_analytics_workspace_name: ${{ variables.log_analytics_workspace_name }}
+        TF_VAR_retention_in_days: ${{ variables.retention_in_days }}
+        TF_VAR_backend_resource_group_name: ${{ variables.backend_resource_group_name }}
+        TF_VAR_backend_storage_account_name: ${{ variables.backend_storage_account_name }}
+        TF_VAR_backend_container_name: ${{ variables.backend_container_name }}
+
+        TF_LOG: ${{ parameters.LogLevel }}
+      displayName: 'Terraform Apply'
+
+
+
+      

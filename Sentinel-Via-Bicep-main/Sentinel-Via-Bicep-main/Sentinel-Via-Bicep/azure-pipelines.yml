@@ -1,0 +1,104 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  azureSubscription: 'DeploymentConnection'
+
+stages:
+  # ============================================================================
+  # Stage: CheckExistingResources
+  # Checks whether Microsoft Sentinel resources exist to decide on Bicep deployment.
+  # ============================================================================
+  - stage: CheckExistingResources
+    displayName: 'Check if Sentinel Resources Exist'
+    jobs:
+      - job: CheckResources
+        displayName: 'Verify Existing Sentinel Resources'
+        steps:
+          - task: AzurePowerShell@5
+            displayName: 'Check for Existing Resources in Resource Group'
+            name: CheckSentinelResources
+            inputs:
+              azureSubscription: $(azureSubscription)
+              ScriptType: 'InlineScript'
+              pwsh: true
+              azurePowerShellVersion: LatestVersion
+              Inline: |
+                Write-Output "Checking for Sentinel resources in Resource Group: $(RESOURCEGROUP)..."
+
+                $rg = "$(RESOURCEGROUP)"
+                $ws = "$(WORKSPACENAME)"
+                $resourcesExist = "false"
+
+                $law = Get-AzOperationalInsightsWorkspace -ResourceGroupName $rg -Name $ws -ErrorAction SilentlyContinue
+                if ($law) {
+                  Write-Output "Log Analytics Workspace ($ws) found."
+                  $resourcesExist = "true"
+                } else {
+                  Write-Output "Log Analytics Workspace ($ws) not found."
+                }
+
+                Write-Output "Setting RESOURCES_EXIST to: $resourcesExist"
+                echo "##vso[task.setvariable variable=RESOURCES_EXIST;isOutput=true]$resourcesExist"
+
+  # ============================================================================
+  # Stage: DeployBicep
+  # Deploys Sentinel infrastructure using Bicep if resources don't exist.
+  # ============================================================================
+  - stage: DeployBicep
+    displayName: 'Deploy Microsoft Sentinel Infrastructure via Bicep'
+    dependsOn: CheckExistingResources
+    condition: and(succeeded(), eq(dependencies.CheckExistingResources.outputs['CheckResources.CheckSentinelResources.RESOURCES_EXIST'], 'false'))
+    jobs:
+      - job: DeploySentinelResources
+        displayName: 'Deploy Microsoft Sentinel Resources'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Deploy Sentinel Infrastructure with Bicep Template'
+            name: DeployBicepTask
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                 echo "Starting Bicep Deployment..."
+                 az deployment sub create \
+                   --location '$(REGION)' \
+                   --template-file ./Sentinel-Via-Bicep/Bicep/main.bicep \
+                   --parameters \
+                     rgLocation='$(REGION)' \
+                     rgName='$(RESOURCEGROUP)' \
+                     lawName='$(WORKSPACENAME)' \
+                     dailyQuota='$(DAILYQUOTA)'
+  # ============================================================================
+  # Stage: EnableSentinelContentHub
+  # Always runs to enable Sentinel solutions and configure alert rules.
+  # ============================================================================
+  - stage: EnableSentinelContentHub
+    displayName: 'Enable Sentinel Solutions and Configure Alert Rules'
+    dependsOn:
+      - CheckExistingResources
+      - DeployBicep
+    condition: always()
+    jobs:
+      - job: EnableContentHub
+        displayName: 'Enable Sentinel Solutions and Alert Rules'
+        steps:
+          - task: AzurePowerShell@5
+            continueOnError: true
+            displayName: "Sentinel Solution Deployment"
+            inputs:
+              azureSubscription: $(azureSubscription)
+              ScriptType: 'FilePath'
+              ScriptPath: '$(Build.SourcesDirectory)/Sentinel-Via-Bicep/Scripts/Set-SentinelContent.ps1'
+              ScriptArguments: >
+                -ResourceGroup '$(RESOURCEGROUP)' 
+                -Workspace '$(WORKSPACENAME)' 
+                -Region '$(REGION)' 
+                -Solutions $(SENTINELSOLUTIONS) 
+                -SeveritiesToInclude $(ARSEVERITIES) 
+                -IsGov 'false'
+              azurePowerShellVersion: 'LatestVersion'
