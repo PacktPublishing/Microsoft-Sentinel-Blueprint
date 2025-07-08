@@ -1,0 +1,12 @@
+variables:
+  # Client configuration
+  client_name: "ContosoClient1"
+  resource_group_name: "ContosoClient1-sentinel-rg"
+  location: "eastus2"
+  log_analytics_workspace_name: "ContosoClient1-workspace"
+  retention_in_days: 90
+
+  # Backend configuration
+  backend_container_name: "ContosoClient1"
+  backend_resource_group_name: "ContosoClient1-sentinel-backend"
+  backend_storage_account_name: "ContosoClient1-sentinelstorageacct"

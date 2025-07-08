@@ -1,0 +1,86 @@
+﻿{
+    "$schema": "https://schema.management.azure.com/schemas/2019-08-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "mspOfferName": {
+        "type": "string",
+        "metadata": {
+            "description": "Specify a unique name for your offer"
+        },
+        "defaultValue": "AzureDemo Lighthouse Tier 1-4 - <Client Name>"
+    },
+    "mspOfferDescription": {
+            "type": "string",
+      "metadata": {
+                "description": "Name of the Managed Service Provider offering"
+      },
+      "defaultValue": "AzureDemo Lighthouse Tier 1-4 - <Client Name>"
+    }
+    },
+    "variables": {
+        "mspRegistrationName": "[guid(parameters('mspOfferName'))]",
+        "mspAssignmentName": "[guid(parameters('mspOfferName'))]",
+        "managedByTenantId": "7e19484d-9dd8-4cd0-8bb2-75b04b903dfe",
+        "authorizations": [
+            {
+                "principalId": "dd94c95b-086b-464e-85e1-06406daaac0b",
+                "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7",
+                "principalIdDisplayName": "ClientX_Tier1_Reader - <Client Name>"
+            },
+            {
+                "principalId": "dd94c95b-086b-464e-85e1-06406daaac0b",
+                "roleDefinitionId": "8d289c81-5878-46d4-8554-54e1e3d8b5cb",
+                "principalIdDisplayName": "ClientX_Tier1_Reader - <Client Name>"
+            },
+            {
+                "principalId": "93808ff6-44e4-46b5-8629-c6e67b425271",
+                "roleDefinitionId": "3e150937-b8fe-4cfb-8069-0eaf05ecd056",
+                "principalIdDisplayName": "ClientX_Tier2_Reader - <Client Name>"
+            },
+            {
+                "principalId": "a4615a40-2ac1-4519-a6b5-c35f4ed94781",
+                "roleDefinitionId": "ab8e14d6-4a74-4a29-9ba8-549422addade",
+                "principalIdDisplayName": "ClientX_Tier3_Reader - <Client Name>"
+            },
+            {
+                "principalId": "caba65bc-f0ae-4d3d-80ca-58766cfbb4e5",
+                "roleDefinitionId": "87a39d53-fc1b-424a-814c-f7e04687dc9e",
+                "principalIdDisplayName": "ClientX_Tier4_Reader - <Client Name>"
+            }
+        ]
+    },
+  "resources": [
+    {
+        "type": "Microsoft.ManagedServices/registrationDefinitions",
+      "apiVersion": "2020-02-01-preview",
+      "name": "[variables('mspRegistrationName')]",
+      "properties": {
+            "registrationDefinitionName": "[parameters('mspOfferName')]",
+        "description": "[parameters('mspOfferDescription')]",
+        "managedByTenantId": "[variables('managedByTenantId')]",
+        "authorizations": "[variables('authorizations')]"
+      }
+    },
+    {
+        "type": "Microsoft.ManagedServices/registrationAssignments",
+      "apiVersion": "2020-02-01-preview",
+      "name": "[variables('mspAssignmentName')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedServices/registrationDefinitions/', variables('mspRegistrationName'))]"
+      ],
+      "properties": {
+            "registrationDefinitionId": "[resourceId('Microsoft.ManagedServices/registrationDefinitions/', variables('mspRegistrationName'))]"
+      }
+    }
+  ],
+  "outputs": {
+        "mspOfferName": {
+            "type": "string",
+      "value": "[concat('Managed by', ' ', parameters('mspOfferName'))]"
+        },
+    "authorizations": {
+            "type": "array",
+      "value": "[variables('authorizations')]"
+    }
+    }
+}
